@@ -32,8 +32,16 @@ try:
 except ImportError:
     WEBDRIVER_MANAGER_AVAILABLE = False
 
+# ベースディレクトリを取得（exe実行時も対応）
+import os as _os
+
+if getattr(sys, "frozen", False):
+    _base_dir = Path(_os.path.dirname(sys.executable))
+else:
+    _base_dir = Path(_os.path.dirname(_os.path.abspath(__file__)))
+
 # ログ設定
-log_dir = Path("logs")
+log_dir = _base_dir / "logs"
 log_dir.mkdir(exist_ok=True)
 log_file = log_dir / f"auto_checkinout_{datetime.now().strftime('%Y%m%d')}.log"
 
@@ -50,21 +58,44 @@ class SalesforceAutoCheckInOut:
 
     def __init__(self, config_path="config.json"):
         """初期化"""
+        self.base_dir = self._get_base_dir()
         self.config = self.load_config(config_path)
         self.driver = None
 
+    def _get_base_dir(self):
+        """実行ファイルのベースディレクトリを取得"""
+        import os
+
+        if getattr(sys, "frozen", False):
+            # PyInstallerでビルドされた実行ファイルの場合
+            return os.path.dirname(sys.executable)
+        else:
+            # 通常のPythonスクリプトの場合
+            return os.path.dirname(os.path.abspath(__file__))
+
     def load_config(self, config_path):
         """設定ファイルを読み込む"""
+        import os
+
+        # 実行ファイルと同じディレクトリからconfig.jsonを探す
+        full_path = os.path.join(self.base_dir, config_path)
+
         try:
-            with open(config_path, "r", encoding="utf-8") as f:
+            with open(full_path, "r", encoding="utf-8") as f:
                 config = json.load(f)
-            logger.info("設定ファイルを読み込みました")
+            logger.info(f"設定ファイルを読み込みました: {full_path}")
             return config
         except FileNotFoundError:
-            logger.error(f"設定ファイル '{config_path}' が見つかりません")
+            logger.error(f"設定ファイル '{full_path}' が見つかりません")
+            print(f"\nエラー: config.json が見つかりません")
+            print(f"場所: {full_path}")
+            print("\nconfig.json を実行ファイルと同じフォルダに配置してください。")
+            input("Enterキーを押して終了...")
             sys.exit(1)
         except json.JSONDecodeError:
             logger.error("設定ファイルのJSON形式が正しくありません")
+            print("\nエラー: config.json の形式が正しくありません")
+            input("Enterキーを押して終了...")
             sys.exit(1)
 
     def setup_driver(self):
@@ -108,7 +139,7 @@ class SalesforceAutoCheckInOut:
             chrome_options.add_argument("--headless")
             chrome_options.add_argument("--disable-gpu")
 
-        # その他のオプション
+        # 基本オプション
         chrome_options.add_argument("--no-sandbox")
         chrome_options.add_argument("--disable-dev-shm-usage")
         chrome_options.add_argument("--start-maximized")
@@ -116,15 +147,42 @@ class SalesforceAutoCheckInOut:
         chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
         chrome_options.add_experimental_option("useAutomationExtension", False)
 
-        # 通知・ポップアップの抑制設定
+        # 言語設定（日本語優先）
+        chrome_options.add_argument("--lang=ja")
+        chrome_options.add_argument("--accept-lang=ja,en-US,en")
+
+        # 詳細設定（prefs）
         prefs = {
+            # 通知を拒否
             "profile.default_content_setting_values.notifications": 2,
+            # 位置情報を拒否
+            "profile.default_content_setting_values.geolocation": 2,
+            # カメラを拒否
+            "profile.default_content_setting_values.media_stream_camera": 2,
+            # マイクを拒否
+            "profile.default_content_setting_values.media_stream_mic": 2,
+            # パスワード保存を無効化
             "credentials_enable_service": False,
             "profile.password_manager_enabled": False,
+            # 自動入力を無効化
+            "autofill.profile_enabled": False,
+            "autofill.credit_card_enabled": False,
+            # Cookieを許可
+            "profile.default_content_setting_values.cookies": 1,
+            # ポップアップを許可
+            "profile.default_content_setting_values.popups": 1,
+            # ダウンロードプロンプトを表示
+            "download.prompt_for_download": True,
+            # 翻訳プロンプトを無効化
+            "translate.enabled": False,
         }
         chrome_options.add_experimental_option("prefs", prefs)
+
+        # 追加のオプション
         chrome_options.add_argument("--disable-notifications")
         chrome_options.add_argument("--disable-popup-blocking")
+        chrome_options.add_argument("--disable-infobars")
+        chrome_options.add_argument("--disable-translate")
 
         # ユーザーデータディレクトリの指定（オプション）
         if "user_data_dir" in self.config and self.config["user_data_dir"]:
@@ -140,15 +198,55 @@ class SalesforceAutoCheckInOut:
         """Edge WebDriverをセットアップ"""
         edge_options = EdgeOptions()
 
+        # ヘッドレスモード
         if self.config.get("headless", False):
             edge_options.add_argument("--headless")
             edge_options.add_argument("--disable-gpu")
 
+        # 基本オプション
         edge_options.add_argument("--no-sandbox")
         edge_options.add_argument("--disable-dev-shm-usage")
         edge_options.add_argument("--start-maximized")
+        edge_options.add_argument("--disable-blink-features=AutomationControlled")
+
+        # 言語設定（日本語優先）
+        edge_options.add_argument("--lang=ja")
+        edge_options.add_argument("--accept-lang=ja,en-US,en")
+
+        # 詳細設定（prefs）
+        prefs = {
+            # 通知を拒否
+            "profile.default_content_setting_values.notifications": 2,
+            # 位置情報を拒否
+            "profile.default_content_setting_values.geolocation": 2,
+            # カメラを拒否
+            "profile.default_content_setting_values.media_stream_camera": 2,
+            # マイクを拒否
+            "profile.default_content_setting_values.media_stream_mic": 2,
+            # パスワード保存を無効化
+            "credentials_enable_service": False,
+            "profile.password_manager_enabled": False,
+            # 自動入力を無効化
+            "autofill.profile_enabled": False,
+            "autofill.credit_card_enabled": False,
+            # Cookieを許可
+            "profile.default_content_setting_values.cookies": 1,
+            # ポップアップを許可
+            "profile.default_content_setting_values.popups": 1,
+            # ダウンロードプロンプトを表示
+            "download.prompt_for_download": True,
+            # 翻訳プロンプトを無効化
+            "translate.enabled": False,
+        }
+        edge_options.add_experimental_option("prefs", prefs)
+
+        # 追加のオプション
         edge_options.add_argument("--disable-notifications")
         edge_options.add_argument("--disable-popup-blocking")
+        edge_options.add_argument("--disable-infobars")
+        edge_options.add_argument("--disable-translate")
+        edge_options.add_experimental_option("excludeSwitches", ["enable-automation"])
+        edge_options.add_experimental_option("useAutomationExtension", False)
 
         if WEBDRIVER_MANAGER_AVAILABLE:
             service = EdgeService(EdgeChromiumDriverManager().install())
@@ -160,11 +258,51 @@ class SalesforceAutoCheckInOut:
         """Firefox WebDriverをセットアップ"""
         firefox_options = FirefoxOptions()
 
+        # ヘッドレスモード
         if self.config.get("headless", False):
             firefox_options.add_argument("--headless")
 
+        # 言語設定（日本語優先）
+        firefox_options.set_preference("intl.accept_languages", "ja,en-US,en")
+
+        # 通知を拒否
         firefox_options.set_preference("dom.webnotifications.enabled", False)
         firefox_options.set_preference("dom.push.enabled", False)
+        firefox_options.set_preference("permissions.default.desktop-notification", 2)
+
+        # 位置情報を拒否
+        firefox_options.set_preference("geo.enabled", False)
+        firefox_options.set_preference("permissions.default.geo", 2)
+
+        # カメラ・マイクを拒否
+        firefox_options.set_preference("media.navigator.enabled", False)
+        firefox_options.set_preference("media.navigator.permission.disabled", True)
+        firefox_options.set_preference("permissions.default.camera", 2)
+        firefox_options.set_preference("permissions.default.microphone", 2)
+
+        # パスワード保存を無効化
+        firefox_options.set_preference("signon.rememberSignons", False)
+        firefox_options.set_preference("signon.autofillForms", False)
+
+        # 自動入力を無効化
+        firefox_options.set_preference("browser.formfill.enable", False)
+
+        # Cookieを許可
+        firefox_options.set_preference("network.cookie.cookieBehavior", 0)
+
+        # ポップアップを許可
+        firefox_options.set_preference("dom.disable_open_during_load", False)
+
+        # ダウンロードプロンプトを表示
+        firefox_options.set_preference("browser.download.useDownloadDir", False)
+        firefox_options.set_preference("browser.helperApps.neverAsk.saveToDisk", "")
+
+        # 翻訳プロンプトを無効化
+        firefox_options.set_preference("browser.translations.enable", False)
+
+        # その他の設定
+        firefox_options.set_preference("browser.tabs.warnOnClose", False)
+        firefox_options.set_preference("browser.shell.checkDefaultBrowser", False)
 
         if WEBDRIVER_MANAGER_AVAILABLE:
             service = FirefoxService(GeckoDriverManager().install())
@@ -670,7 +808,7 @@ class SalesforceAutoCheckInOut:
     def take_screenshot(self, filename):
         """スクリーンショットを保存"""
         try:
-            screenshot_dir = Path("screenshots")
+            screenshot_dir = Path(self.base_dir) / "screenshots"
             screenshot_dir.mkdir(exist_ok=True)
             filepath = (
                 screenshot_dir
@@ -758,18 +896,43 @@ class SalesforceAutoCheckInOut:
 
 def main():
     """メイン処理"""
-    if len(sys.argv) < 2:
-        print("使用方法: python main.py [出勤|退勤]")
-        sys.exit(1)
+    import os
 
-    action_type = sys.argv[1]
+    # 実行ファイル名から動作を自動判断
+    exe_name = os.path.basename(sys.argv[0])
+
+    if len(sys.argv) >= 2:
+        # コマンドライン引数がある場合
+        action_type = sys.argv[1]
+    elif "出勤" in exe_name:
+        # 実行ファイル名に「出勤」が含まれる場合
+        action_type = "出勤"
+        print("出勤処理を開始します...")
+    elif "退勤" in exe_name:
+        # 実行ファイル名に「退勤」が含まれる場合
+        action_type = "退勤"
+        print("退勤処理を開始します...")
+    else:
+        print("使用方法: python main.py [出勤|退勤]")
+        print("または: 出勤.exe / 退勤.exe をダブルクリック")
+        input("Enterキーを押して終了...")
+        sys.exit(1)
 
     if action_type not in ["出勤", "退勤"]:
         print("エラー: 引数は '出勤' または '退勤' を指定してください")
+        input("Enterキーを押して終了...")
         sys.exit(1)
 
     automation = SalesforceAutoCheckInOut()
     success = automation.execute(action_type)
+
+    # 結果表示
+    if success:
+        print(f"\n✓ {action_type}処理が完了しました！")
+    else:
+        print(f"\n✗ {action_type}処理に失敗しました。ログを確認してください。")
+
+    input("Enterキーを押して終了...")
 
     # 終了コード
     sys.exit(0 if success else 1)
