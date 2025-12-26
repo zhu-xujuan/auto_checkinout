@@ -365,18 +365,104 @@ class SalesforceAutoCheckInOut:
             logger.error(f"ログイン中にエラーが発生しました: {e}")
             return False
 
-    def click_checkin_button(self):
+    def click_checkin_button(self, work_location=None):
         """出勤ボタンをクリック"""
+        # 勤務場所が指定されている場合、先にタブをクリック
+        if work_location:
+            if not self._click_location_tab(work_location):
+                logger.warning(
+                    f"勤務場所「{work_location}」の選択に失敗しましたが、続行します"
+                )
+
         return self._click_button("checkin", "出勤")
 
-    def click_checkout_button(self):
+    def click_checkout_button(self, work_location=None):
         """退勤ボタンをクリック"""
         # 退勤前に出勤済みかチェック
         if not self._check_already_checked_in():
             logger.warning("まだ出勤していません。退勤処理をスキップします。")
             return "not_checked_in"
 
+        # 勤務場所が指定されている場合、先にタブをクリック
+        if work_location:
+            if not self._click_location_tab(work_location):
+                logger.warning(
+                    f"勤務場所「{work_location}」の選択に失敗しましたが、続行します"
+                )
+
         return self._click_button("checkout", "退勤")
+
+    def _click_location_tab(self, location_name):
+        """勤務場所タブをクリック（自宅、本社など）"""
+        try:
+            logger.info(f"勤務場所「{location_name}」タブを探しています...")
+
+            # Shadow DOM内のiframeで探す
+            try:
+                js_code = """
+                const alohaPage = document.querySelector('force-aloha-page');
+                if (alohaPage && alohaPage.shadowRoot) {
+                    const vfIframe = alohaPage.shadowRoot.querySelector('iframe[name^="vfFrameId"]');
+                    return vfIframe;
+                }
+                return null;
+                """
+                vf_iframe = self.driver.execute_script(js_code)
+
+                if vf_iframe:
+                    self.driver.switch_to.frame(vf_iframe)
+                    time.sleep(2)
+            except Exception as e:
+                logger.info(f"Shadow DOM探索: {e}")
+
+            # タブ要素を探す（複数のセレクタで試行）
+            tab_selectors = [
+                f"//div[text()='{location_name}']",
+                f"//span[text()='{location_name}']",
+                f"//button[text()='{location_name}']",
+                f"//*[contains(@class, 'tab') and text()='{location_name}']",
+                f"//*[@role='tab' and text()='{location_name}']",
+            ]
+
+            for selector in tab_selectors:
+                try:
+                    tabs = self.driver.find_elements(By.XPATH, selector)
+                    for tab in tabs:
+                        if tab.text.strip() == location_name:
+                            tab.click()
+                            logger.info(
+                                f"★ 勤務場所「{location_name}」タブをクリックしました"
+                            )
+                            time.sleep(2)
+                            return True
+                except:
+                    continue
+
+            # JavaScriptで探す
+            js_find_tab = f"""
+            const allElements = document.querySelectorAll('[class*="tab"], [role="tab"], button, div, span');
+            for (const el of allElements) {{
+                if (el.textContent.trim() === '{location_name}') {{
+                    el.click();
+                    return true;
+                }}
+            }}
+            return false;
+            """
+            result = self.driver.execute_script(js_find_tab)
+            if result:
+                logger.info(
+                    f"★ 勤務場所「{location_name}」タブをクリックしました（JS）"
+                )
+                time.sleep(2)
+                return True
+
+            logger.warning(f"勤務場所「{location_name}」タブが見つかりませんでした")
+            return False
+
+        except Exception as e:
+            logger.error(f"勤務場所タブのクリック中にエラーが発生しました: {e}")
+            return False
 
     def _check_already_checked_in(self):
         """出勤済みかどうかをチェック"""
@@ -825,11 +911,17 @@ class SalesforceAutoCheckInOut:
             self.driver.quit()
             logger.info("ブラウザを閉じました")
 
-    def execute(self, action_type):
-        """出勤または退勤を実行"""
+    def execute(self, action_type, work_location=None):
+        """出勤または退勤を実行
+
+        Args:
+            action_type: "出勤" または "退勤"
+            work_location: 勤務場所（"自宅" など）。Noneの場合は選択しない
+        """
         try:
+            location_info = f"（{work_location}）" if work_location else ""
             logger.info(f"{'='*50}")
-            logger.info(f"{action_type}処理を開始します")
+            logger.info(f"{action_type}{location_info}処理を開始します")
             logger.info(f"{'='*50}")
 
             # WebDriverセットアップ
@@ -842,9 +934,9 @@ class SalesforceAutoCheckInOut:
 
             # 出勤または退勤
             if action_type == "出勤":
-                result = self.click_checkin_button()
+                result = self.click_checkin_button(work_location)
             elif action_type == "退勤":
-                result = self.click_checkout_button()
+                result = self.click_checkout_button(work_location)
             else:
                 logger.error(f"不正なアクションタイプ: {action_type}")
                 return False
@@ -900,23 +992,38 @@ def main():
 
     # 実行ファイル名から動作を自動判断
     exe_name = os.path.basename(sys.argv[0])
+    action_type = None
+    work_location = None
 
     if len(sys.argv) >= 2:
         # コマンドライン引数がある場合
         action_type = sys.argv[1]
-    elif "出勤" in exe_name:
-        # 実行ファイル名に「出勤」が含まれる場合
-        action_type = "出勤"
-        print("出勤処理を開始します...")
-    elif "退勤" in exe_name:
-        # 実行ファイル名に「退勤」が含まれる場合
-        action_type = "退勤"
-        print("退勤処理を開始します...")
+        if len(sys.argv) >= 3:
+            work_location = sys.argv[2]  # 勤務場所（例: 自宅）
     else:
-        print("使用方法: python main.py [出勤|退勤]")
-        print("または: 出勤.exe / 退勤.exe をダブルクリック")
-        input("Enterキーを押して終了...")
-        sys.exit(1)
+        # 実行ファイル名から判断
+        if "在宅出勤" in exe_name:
+            action_type = "出勤"
+            work_location = "自宅"
+            print("在宅出勤処理を開始します...")
+        elif "在宅退勤" in exe_name:
+            action_type = "退勤"
+            work_location = "自宅"
+            print("在宅退勤処理を開始します...")
+        elif "出勤" in exe_name:
+            action_type = "出勤"
+            print("出勤処理を開始します...")
+        elif "退勤" in exe_name:
+            action_type = "退勤"
+            print("退勤処理を開始します...")
+        else:
+            print("使用方法: python main.py [出勤|退勤] [勤務場所]")
+            print("例: python main.py 出勤 自宅")
+            print(
+                "または: 出勤.exe / 退勤.exe / 在宅出勤.exe / 在宅退勤.exe をダブルクリック"
+            )
+            input("Enterキーを押して終了...")
+            sys.exit(1)
 
     if action_type not in ["出勤", "退勤"]:
         print("エラー: 引数は '出勤' または '退勤' を指定してください")
@@ -924,13 +1031,16 @@ def main():
         sys.exit(1)
 
     automation = SalesforceAutoCheckInOut()
-    success = automation.execute(action_type)
+    success = automation.execute(action_type, work_location)
 
     # 結果表示
+    location_info = f"（{work_location}）" if work_location else ""
     if success:
-        print(f"\n✓ {action_type}処理が完了しました！")
+        print(f"\n✓ {action_type}{location_info}処理が完了しました！")
     else:
-        print(f"\n✗ {action_type}処理に失敗しました。ログを確認してください。")
+        print(
+            f"\n✗ {action_type}{location_info}処理に失敗しました。ログを確認してください。"
+        )
 
     input("Enterキーを押して終了...")
 
