@@ -71,6 +71,18 @@ class SalesforceAutoCheckInOut:
                 "excludeSwitches", ["enable-automation"]
             )
             chrome_options.add_experimental_option("useAutomationExtension", False)
+            
+            # 通知・ポップアップの抑制設定
+            prefs = {
+                "profile.default_content_setting_values.notifications": 2,  # 通知を無効化
+                "credentials_enable_service": False,  # パスワード保存を無効化
+                "profile.password_manager_enabled": False,  # パスワードマネージャーを無効化
+            }
+            chrome_options.add_experimental_option("prefs", prefs)
+            
+            # 追加の通知抑制オプション
+            chrome_options.add_argument("--disable-notifications")
+            chrome_options.add_argument("--disable-popup-blocking")
 
             # ユーザーデータディレクトリの指定（オプション）
             if "user_data_dir" in self.config and self.config["user_data_dir"]:
