@@ -12,6 +12,7 @@ python main.py 出勤
 if %ERRORLEVEL% EQU 0 (
     echo.
     echo ✓ 出勤処理が完了しました！
+    echo   ※既に出勤済みの場合もこのメッセージが表示されます
 ) else (
     echo.
     echo ✗ 出勤処理に失敗しました。ログを確認してください。
