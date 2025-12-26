@@ -1,0 +1,26 @@
+{
+  "salesforce_url": "https://login.salesforce.com/",
+  "username": "your_email@example.com",
+  "password": "your_password",
+  "buttons": {
+    "checkin": {
+      "selector_type": "id",
+      "selector_value": "btnStInput",
+      "comment": "出勤ボタンのID"
+    },
+    "checkout": {
+      "selector_type": "id",
+      "selector_value": "btnEtInput",
+      "comment": "退勤ボタンのID"
+    }
+  },
+  "headless": false,
+  "auto_close": true,
+  "user_data_dir": "",
+  "_comment": "設定説明",
+  "_selector_types": "利用可能なセレクタータイプ: id, name, class, xpath, css, link_text, partial_link_text",
+  "_headless": "true: ブラウザを表示しない, false: ブラウザを表示する",
+  "_auto_close": "true: 処理後にブラウザを自動で閉じる, false: ブラウザを開いたままにする",
+  "_user_data_dir": "Chromeのユーザーデータディレクトリ（空欄の場合は使用しない）"
+}
+
