@@ -1,13 +1,13 @@
 @echo off
 chcp 65001 >nul
 echo ========================================
-echo   Salesforce 自動出勤システム
+echo   Salesforce 自動出勤システム（恵比寿本社）
 echo ========================================
 echo.
 echo 出勤処理を開始します...
 echo.
 
-python main.py 出勤
+python main.py 出勤 恵比寿本社
 
 if %ERRORLEVEL% EQU 0 (
     echo.

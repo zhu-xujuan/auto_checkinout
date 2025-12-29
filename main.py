@@ -489,8 +489,10 @@ class SalesforceAutoCheckInOut:
                 logger.error(f"不正なセレクタータイプ: {selector_type}")
                 return False
 
-            # 出勤ボタンを探す
-            checkin_button = self._find_button_in_frames(by_type, selector_value)
+            # 出勤ボタンを探す（出勤ボタンのみを対象）
+            checkin_button = self._find_button_in_frames(
+                by_type, selector_value, target_button="出勤"
+            )
 
             # 見つからなかった場合、IDで探す
             if checkin_button is None:
@@ -512,6 +514,12 @@ class SalesforceAutoCheckInOut:
         except Exception as e:
             logger.error(f"出勤状態のチェック中にエラーが発生しました: {e}")
             return False
+        finally:
+            # メインフレームに戻る
+            try:
+                self.driver.switch_to.default_content()
+            except:
+                pass
 
     def _click_button(self, button_type, button_name):
         """指定されたボタンをクリック"""
@@ -538,8 +546,10 @@ class SalesforceAutoCheckInOut:
                 logger.error(f"不正なセレクタータイプ: {selector_type}")
                 return False
 
-            # まずボタンの存在を確認（メインフレームとiframe）
-            button = self._find_button_in_frames(by_type, selector_value)
+            # まずボタンの存在を確認（メインフレームとiframe）- target_buttonを指定
+            button = self._find_button_in_frames(
+                by_type, selector_value, target_button=button_name
+            )
 
             # 見つからなかった場合、IDで直接探す（フォールバック）
             if button is None:
@@ -579,13 +589,32 @@ class SalesforceAutoCheckInOut:
             logger.error(f"{button_name}ボタンのクリック中にエラーが発生しました: {e}")
             return False
 
-    def _find_button_in_frames(self, by_type, selector_value):
-        """メインフレームとすべてのiframe内でボタンを探す"""
+    def _find_button_in_frames(self, by_type, selector_value, target_button=None):
+        """メインフレームとすべてのiframe内でボタンを探す
+
+        Args:
+            by_type: Byタイプ
+            selector_value: セレクター値
+            target_button: 探しているボタン名（"出勤" または "退勤"）。Noneの場合は両方対象
+        """
+
+        # target_buttonに対応するIDを決定
+        if target_button == "出勤":
+            target_ids = ["btnStInput"]
+            target_values = ["出勤"]
+        elif target_button == "退勤":
+            target_ids = ["btnEtInput"]
+            target_values = ["退勤"]
+        else:
+            target_ids = ["btnStInput", "btnEtInput"]
+            target_values = ["出勤", "退勤"]
 
         # まずShadow DOM内のiframeを探す（TeamSpirit/Salesforce Lightning対応）
         try:
             logger.info("Shadow DOM内のVisualforce iframeを探しています...")
-            button = self._find_button_in_shadow_dom(by_type, selector_value)
+            button = self._find_button_in_shadow_dom(
+                by_type, selector_value, target_button
+            )
             if button:
                 return button
         except Exception as e:
@@ -603,16 +632,16 @@ class SalesforceAutoCheckInOut:
                 f"メインフレーム: {len(inputs)}個のinput要素、{len(buttons)}個のbutton要素"
             )
 
-            # 出勤・退勤ボタンを探す
+            # 指定されたボタンのみを探す
             for idx, elem in enumerate(inputs + buttons):
                 try:
                     elem_id = elem.get_attribute("id")
                     elem_value = elem.get_attribute("value")
                     elem_text = elem.text
                     if (
-                        elem_value in ["出勤", "退勤"]
-                        or elem_text in ["出勤", "退勤"]
-                        or elem_id in ["btnStInput", "btnEtInput"]
+                        elem_value in target_values
+                        or elem_text in target_values
+                        or elem_id in target_ids
                     ):
                         logger.info(
                             f"★メインフレームでボタン発見: id={elem_id}, value={elem_value}, text={elem_text}"
@@ -726,10 +755,27 @@ class SalesforceAutoCheckInOut:
         self.driver.switch_to.default_content()
         return None
 
-    def _find_button_in_shadow_dom(self, by_type, selector_value):
-        """Shadow DOM内のVisualforce iframe内でボタンを探す（TeamSpirit/Salesforce Lightning対応）"""
+    def _find_button_in_shadow_dom(self, by_type, selector_value, target_button=None):
+        """Shadow DOM内のVisualforce iframe内でボタンを探す（TeamSpirit/Salesforce Lightning対応）
+
+        Args:
+            by_type: Byタイプ
+            selector_value: セレクター値
+            target_button: 探しているボタン名（"出勤" または "退勤"）。Noneの場合は両方対象
+        """
         try:
             logger.info("force-aloha-page のShadow DOMを探索中...")
+
+            # target_buttonに対応するIDと値を決定
+            if target_button == "出勤":
+                target_ids = ["btnStInput"]
+                target_values = ["出勤"]
+            elif target_button == "退勤":
+                target_ids = ["btnEtInput"]
+                target_values = ["退勤"]
+            else:
+                target_ids = ["btnStInput", "btnEtInput"]
+                target_values = ["出勤", "退勤"]
 
             # JavaScriptでShadow DOM内のiframeを取得
             js_code = """
@@ -756,24 +802,32 @@ class SalesforceAutoCheckInOut:
                 # iframe内のコンテンツが読み込まれるまで待機
                 time.sleep(5)
 
-                # 出勤・退勤ボタンを探す
-                logger.info("iframe内でボタンを探しています...")
+                # ボタンを探す
+                logger.info(
+                    f"iframe内で{target_button or '出勤/退勤'}ボタンを探しています..."
+                )
 
-                # 複数のセレクタで検索
-                button_selectors = [
-                    (By.ID, "btnStInput"),  # 出勤ボタン
-                    (By.ID, "btnEtInput"),  # 退勤ボタン
-                    (By.XPATH, "//input[@type='button' and @value='出勤']"),
-                    (By.XPATH, "//input[@type='button' and @value='退勤']"),
-                    (By.CSS_SELECTOR, "input[value='出勤']"),
-                    (By.CSS_SELECTOR, "input[value='退勤']"),
-                ]
+                # 複数のセレクタで検索（target_buttonに応じて絞り込み）
+                button_selectors = []
+                for btn_id in target_ids:
+                    button_selectors.append((By.ID, btn_id))
+                for btn_value in target_values:
+                    button_selectors.append(
+                        (By.XPATH, f"//input[@type='button' and @value='{btn_value}']")
+                    )
+                    button_selectors.append(
+                        (By.CSS_SELECTOR, f"input[value='{btn_value}']")
+                    )
 
                 # まず指定されたセレクタで探す
                 try:
                     button = self.driver.find_element(by_type, selector_value)
-                    logger.info(f"★ Shadow DOM内のiframeでボタンを発見しました！")
-                    return button
+                    btn_value = button.get_attribute("value")
+                    if btn_value in target_values:
+                        logger.info(
+                            f"★ Shadow DOM内のiframeで{target_button or btn_value}ボタンを発見しました！"
+                        )
+                        return button
                 except:
                     pass
 
@@ -783,10 +837,11 @@ class SalesforceAutoCheckInOut:
                         button = self.driver.find_element(sel_by, sel_value)
                         btn_id = button.get_attribute("id")
                         btn_value = button.get_attribute("value")
-                        logger.info(
-                            f"★ Shadow DOM内のiframeでボタンを発見: id={btn_id}, value={btn_value}"
-                        )
-                        return button
+                        if btn_id in target_ids or btn_value in target_values:
+                            logger.info(
+                                f"★ Shadow DOM内のiframeでボタンを発見: id={btn_id}, value={btn_value}"
+                            )
+                            return button
                     except:
                         continue
 
@@ -801,8 +856,8 @@ class SalesforceAutoCheckInOut:
                         logger.info(
                             f"  input[{idx}]: id={inp_id}, type={inp_type}, value={inp_value}"
                         )
-                        if inp_value in ["出勤", "退勤"]:
-                            logger.info(f"★ 出勤/退勤ボタンを発見！")
+                        if inp_value in target_values:
+                            logger.info(f"★ {inp_value}ボタンを発見！")
                             return inp
                     except:
                         pass
@@ -1012,10 +1067,12 @@ def main():
             print("在宅退勤処理を開始します...")
         elif "出勤" in exe_name:
             action_type = "出勤"
-            print("出勤処理を開始します...")
+            work_location = "恵比寿本社"
+            print("出勤処理を開始します（恵比寿本社）...")
         elif "退勤" in exe_name:
             action_type = "退勤"
-            print("退勤処理を開始します...")
+            work_location = "恵比寿本社"
+            print("退勤処理を開始します（恵比寿本社）...")
         else:
             print("使用方法: python main.py [出勤|退勤] [勤務場所]")
             print("例: python main.py 出勤 自宅")
